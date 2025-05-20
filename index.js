@@ -26,10 +26,14 @@ const COLUMN_WIDTHS = {
   tax:10,
 
   qty: 4,
+  No: 4,
+  date:14,
   mrp:10,
   value:10,
   disc:10,
   tvalue: 10,
+  amount:8,
+  note:16,
 
 };
 
@@ -84,7 +88,7 @@ app.post('/api/print-bill', async (req, res) => {
     bill.companyAddress.locality,
     bill.companyAddress.city,
     bill.companyAddress.state,
-    bill.companyAddress.pincode ? `- ${bill.companyAddress.pincode}` : ''
+    bill.companyAddress.pincode ? `${bill.companyAddress.pincode}` : ''
   ]
   .filter(Boolean) // Remove any undefined or empty parts
   .join(', ');
@@ -121,7 +125,9 @@ app.post('/api/print-bill', async (req, res) => {
         .text(bill.companyName)
         .style('normal') 
         .size(0.5, 0.5)
-        .text(formattedAddress)
+        .text(`${bill.companyAddress.name}, ${bill.companyAddress.street}`)
+        .text(`${bill.companyAddress.locality}, ${bill.companyAddress.city}`)
+        .text(`${bill.companyAddress.state}- ${bill.companyAddress.pincode}`)
         .text(`GSTIN:${bill.gstin} `)
         .feed(1)
         .drawLine()
@@ -132,6 +138,16 @@ app.post('/api/print-bill', async (req, res) => {
         .raw(Buffer.from([0x1B, 0x4A, 10]))
         .text(`Payment Method: ${bill.paymentMethod}`)
         .drawLine();
+        if (bill.clientName) {
+          printer.text(`Customer Name: ${bill.clientName}`).raw(Buffer.from([0x1B, 0x4A, 10]));
+        }
+        if (bill.clientPhone) {
+          printer.text(`Customer Phone No: ${bill.clientPhone}`)
+          .raw(Buffer.from([0x1B, 0x4A, 10]))
+          .drawLine();
+        }
+
+
 
       // Column headers (Row 1: SL, DESCRIPTION, TAX)
         printer
@@ -222,7 +238,7 @@ app.post('/api/print-bill', async (req, res) => {
 
       if (bill.paymentMethod?.toLowerCase() === 'upi') {
        const tn = encodeURIComponent(`Payment for Invoice ID ${bill.invoiceNumber}`)
-      const qrLink = `phonepe://pay?pa=${bill.upiId}&pn=${bill.accHolderName}&tn=${tn}&am=${bill.grandTotal}&cu=INR`;
+      const qrLink = `upi://pay?pa=${bill.upiId}&pn=${bill.accHolderName}&tn=${tn}&am=${bill.grandTotal}&cu=INR`;
 
         printer
           .align('ct')
@@ -255,6 +271,115 @@ app.post('/api/print-bill', async (req, res) => {
           .feed(8)
           .close();
       }
+
+      // Common footer
+      
+    
+
+      res.status(200).json({ message: 'Receipt printed successfully' });
+    } catch (err) {
+      console.error('Print error:', err);
+      printer.cut().close();
+      res.status(500).json({ error: 'Failed to print receipt', details: err.message });
+    }
+  });
+});
+
+
+
+app.post('/api/print-report', async (req, res) => {
+  const report = req.body;
+
+
+
+  let device;
+  try {
+    device = new escpos.USB();
+  } catch (err) {
+    console.error('USB Printer not found:', err.message);
+    return res.status(500).json({ error: 'Printer not found. Please check connection.' });
+  }
+
+  const printer = new escpos.Printer(device);
+
+  device.open((err) => {
+    if (err) {
+      console.error('Error opening printer:', err.message);
+      return res.status(500).json({ error: 'Could not open printer connection' });
+    }
+
+    try {
+      
+      // Print header
+      printer
+        .align('ct')
+        .style('b')
+        .size(1, 1)
+        .text(report.companyName)
+        .style('normal') 
+        .size(0.5, 0.5)
+        .feed(1)
+        .drawLine()
+
+        .align('lt')
+        .text(`Date: ${report.dateRange}`)
+        .raw(Buffer.from([0x1B, 0x4A, 10]))
+        .drawLine()
+
+        .text(`Total Revenue: ${report.totalRevenue}`)
+        .raw(Buffer.from([0x1B, 0x4A, 10]))
+        .text(`In Cash: ${report.totalRevenueInCash}`)
+        .raw(Buffer.from([0x1B, 0x4A, 10]))
+        .text(`In UPI: ${report.totalRevenueInUPI}`)
+        .raw(Buffer.from([0x1B, 0x4A, 10]))
+        .drawLine()
+
+        .text(`Total Expense: ${report.totalExpense}`)
+        .raw(Buffer.from([0x1B, 0x4A, 10]))
+        .text(`In Cash: ${report.totalExpensesInCash}`)
+        .raw(Buffer.from([0x1B, 0x4A, 10]))
+        .text(`In UPI: ${report.totalExpensesInUPI}`)
+        .raw(Buffer.from([0x1B, 0x4A, 10]))
+        .drawLine()
+
+        .text(`Amount in Drawer: ${report.amountInDrawer}`)
+        .raw(Buffer.from([0x1B, 0x4A, 10]))
+        .text(`Amount in UPI: ${report.amountInUPI}`)
+        .raw(Buffer.from([0x1B, 0x4A, 10]))
+       
+        .drawLine()
+        .style('b')
+        .raw(Buffer.from([0x1B, 0x4A, 20]))
+        .text('EXPENSES')
+        .raw(Buffer.from([0x1B, 0x4A, 40]))
+        .style('normal');
+
+         printer
+        .text(
+           textStart("DATE", COLUMN_WIDTHS.date) +
+           textStart("CATEGORY", COLUMN_WIDTHS.mrp) +
+           textStart("NOTE", COLUMN_WIDTHS.note) +
+           textStart("AMOUNT", COLUMN_WIDTHS.amount)
+        )
+         .drawLine()
+
+        report.expenses.forEach((item,index) => {
+         printer
+        .text(
+           textStart(`${moment(item.createdAty).format('DD-MM hh:mm')}`, COLUMN_WIDTHS.date) +
+           textStart(item.expensecategory.name, COLUMN_WIDTHS.mrp) +
+           textStart(item.note || "", COLUMN_WIDTHS.note) +
+           textStart(item.totalAmount, COLUMN_WIDTHS.amount)
+        )
+      });
+          printer
+         .drawLine()
+        .feed(8)
+        .close();
+
+       
+         
+    
 
       // Common footer
       
