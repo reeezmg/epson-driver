@@ -24,16 +24,16 @@ const COLUMN_WIDTHS = {
   description:24,
   hsn:10,
   tax:10,
-
+  category:14,
   qty: 4,
   No: 4,
-  date:14,
+  date:8,
   mrp:10,
   value:10,
   disc:10,
   tvalue: 10,
   amount:8,
-  note:16,
+  note:18,
 
 };
 
@@ -53,7 +53,9 @@ function centerText(text, width) {
 }
 
 function textStart(text, width) {
-  const textStr = text.toString();
+  console.log(text)
+  const textStr = (text ?? " ").toString();
+
   
   // If text is longer than width, return as-is
   if (textStr.length >= width) return textStr;
@@ -81,17 +83,11 @@ app.post('/api/print-bill', async (req, res) => {
     return res.status(400).json({ error: 'Invalid bill data' });
   }
 
-  
-  const formattedAddress = [
-    bill.companyAddress.name,
-    bill.companyAddress.street,
-    bill.companyAddress.locality,
-    bill.companyAddress.city,
-    bill.companyAddress.state,
-    bill.companyAddress.pincode ? `${bill.companyAddress.pincode}` : ''
-  ]
-  .filter(Boolean) // Remove any undefined or empty parts
-  .join(', ');
+  const upiPayment = bill.paymentMethod?.toLowerCase() === 'upi'
+  ? { amount: bill.grandTotal } // Full amount in case of normal UPI
+  : bill.paymentMethod?.toLowerCase() === 'split'
+    ? bill.splitPayments?.find(p => p.method.toLowerCase() === 'upi')
+    : null;
 
   const calculatedDiscount = bill.discount < 0
   ? Math.abs(bill.discount) // if negative, make positive
@@ -134,7 +130,7 @@ app.post('/api/print-bill', async (req, res) => {
         .align('lt')
         .text(`Invoice: #${bill.invoiceNumber}`)
         .raw(Buffer.from([0x1B, 0x4A, 10]))
-        .text(`Date  : ${moment(bill.date).format('DD-MM-YYYY hh:mm A')}`)
+        .text(`Date  : ${moment(bill.date).format('DD-MM-YYYY hh:mm')}`)
         .raw(Buffer.from([0x1B, 0x4A, 10]))
         .text(`Payment Method: ${bill.paymentMethod}`)
         .drawLine();
@@ -236,41 +232,42 @@ app.post('/api/print-bill', async (req, res) => {
       .drawLine();
 
 
-      if (bill.paymentMethod?.toLowerCase() === 'upi') {
-       const tn = encodeURIComponent(`Payment for Invoice ID ${bill.invoiceNumber}`)
-      const qrLink = `upi://pay?pa=${bill.upiId}&pn=${bill.accHolderName}&tn=${tn}&am=${bill.grandTotal}&cu=INR`;
+        if (upiPayment) {
+          const tn = encodeURIComponent(`Payment for Invoice ID ${bill.invoiceNumber}`);
+          const qrLink = `upi://pay?pa=${bill.upiId}&pn=${bill.accHolderName}&tn=${tn}&am=${upiPayment.amount}&cu=INR`;
 
-        printer
-          .align('ct')
-          .feed(1)
-          .text('Scan to pay via UPI')
-          .qrimage(qrLink, function () {
-            printer
+          printer
+            .align('ct')
             .feed(1)
-              .align('ct')
-              .text('Thank you for shopping!')
-              .feed(1)
-              .text('Returns accepted within 7 days')
-              .text('with original receipt')
-              .feed(2)
-              .text('Customer care: +91 9945923901')
-              .feed(8)
-              .close();
-          });
-      } else {
-        // Closing Message
-        printer
-        .feed(1)
-          .align('ct')
-          .text('Thank you for shopping!')
-          .feed(1)
-          .text('Returns accepted within 7 days')
-          .text('with original receipt')
-          .feed(2)
-          .text('Customer care: 9876543210')
-          .feed(8)
-          .close();
-      }
+            .text('Scan to pay via UPI')
+            .qrimage(qrLink, function () {
+              printer
+                .feed(1)
+                .align('ct')
+                .text('Thank you for shopping!')
+                .feed(1)
+                .text('Returns accepted within 7 days')
+                .text('with original receipt')
+                .feed(2)
+                .text('Customer care: +91 9945923901')
+                .feed(8)
+                .close();
+            });
+        } else {
+          // Closing message without QR
+          printer
+            .feed(1)
+            .align('ct')
+            .text('Thank you for shopping!')
+            .feed(1)
+            .text('Returns accepted within 7 days')
+            .text('with original receipt')
+            .feed(2)
+            .text('Customer care: 9876543210')
+            .feed(8)
+            .close();
+        }
+
 
       // Common footer
       
@@ -357,7 +354,7 @@ app.post('/api/print-report', async (req, res) => {
          printer
         .text(
            textStart("DATE", COLUMN_WIDTHS.date) +
-           textStart("CATEGORY", COLUMN_WIDTHS.mrp) +
+           textStart("CATEGORY", COLUMN_WIDTHS.category) +
            textStart("NOTE", COLUMN_WIDTHS.note) +
            textStart("AMOUNT", COLUMN_WIDTHS.amount)
         )
@@ -366,7 +363,7 @@ app.post('/api/print-report', async (req, res) => {
         report.expenses.forEach((item,index) => {
          printer
         .text(
-           textStart(`${moment(item.createdAty).format('DD-MM hh:mm')}`, COLUMN_WIDTHS.date) +
+           textStart(`${moment(item.createdAty).format('DD-MM')}`, COLUMN_WIDTHS.date) +
            textStart(item.expensecategory.name, COLUMN_WIDTHS.mrp) +
            textStart(item.note || "", COLUMN_WIDTHS.note) +
            textStart(item.totalAmount, COLUMN_WIDTHS.amount)
