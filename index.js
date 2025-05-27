@@ -112,166 +112,171 @@ app.post('/api/print-bill', async (req, res) => {
     }
 
     try {
-      
-      // Print header
-      printer
-        .align('ct')
-        .style('b')
-        .size(1, 1)
-        .text(bill.companyName)
-        .style('normal') 
-        .size(0.5, 0.5)
-        .text(`${bill.companyAddress.name}, ${bill.companyAddress.street}`)
-        .text(`${bill.companyAddress.locality}, ${bill.companyAddress.city}`)
-        .text(`${bill.companyAddress.state}- ${bill.companyAddress.pincode}`)
-        .text(`GSTIN:${bill.gstin} `)
-        .feed(1)
-        .drawLine()
-        .align('lt')
-        .text(`Invoice: #${bill.invoiceNumber}`)
-        .raw(Buffer.from([0x1B, 0x4A, 10]))
-        .text(`Date  : ${moment(bill.date).format('DD-MM-YYYY hh:mm')}`)
-        .raw(Buffer.from([0x1B, 0x4A, 10]))
-        .text(`Payment Method: ${bill.paymentMethod}`)
-        .drawLine();
-        if (bill.clientName) {
-          printer.text(`Customer Name: ${bill.clientName}`).raw(Buffer.from([0x1B, 0x4A, 10]));
-        }
-        if (bill.clientPhone) {
-          printer.text(`Customer Phone No: ${bill.clientPhone}`)
-          .raw(Buffer.from([0x1B, 0x4A, 10]))
-          .drawLine();
-        }
-
-
-
-      // Column headers (Row 1: SL, DESCRIPTION, TAX)
-        printer
-        .text(
-          textStart("SL", COLUMN_WIDTHS.sl) +
-          textStart("DESCRIPTION", COLUMN_WIDTHS.description) +
-          textStart("HSN", COLUMN_WIDTHS.hsn) +
-          textStart("TAX", COLUMN_WIDTHS.tax)
-        )
-        .raw(Buffer.from([0x1B, 0x4A, 10]))
-
-        // Column headers (Row 2: QTY, MRP, VALUE, DISC, T.VALUE)
-        printer
-        .text(
-          '    '+
-          textStart("QTY", COLUMN_WIDTHS.qty) +
-          textStart("MRP", COLUMN_WIDTHS.mrp) +
-          textStart("VALUE", COLUMN_WIDTHS.value) +
-          textStart("DISC", COLUMN_WIDTHS.disc) +
-          textStart("T.VALUE", COLUMN_WIDTHS.tvalue)
-        )
-        .drawLine();
-
-      // Print each item
-      bill.entries.forEach((item,index) => {
-        // Line 1: SL, DESCRIPTION, HSN, TAX%
-        printer.text(
-          textStart(index+1, COLUMN_WIDTHS.sl) +
-          textStart(item.description, COLUMN_WIDTHS.description) +
-          textStart(item.hsn, COLUMN_WIDTHS.hsn) +
-          textStart(`${item.tax}%`, COLUMN_WIDTHS.tax)
-        )
-        .raw(Buffer.from([0x1B, 0x4A, 10]));
-
-        // Line 2: QTY, MRP, VALUE, DISC, T.VALUE
-        printer.text(
-          '    '+
-          textStart(item.qty, COLUMN_WIDTHS.qty) +
-          textStart(formatMoney(item.mrp), COLUMN_WIDTHS.mrp) +
-          textStart(formatMoney(item.value), COLUMN_WIDTHS.value) +
-          textStart(`${item.discount}%`, COLUMN_WIDTHS.disc) +
-          textStart(formatMoney(item.tvalue), COLUMN_WIDTHS.tvalue)
-        );
-      });
-
-      // Print summary
-      printer
-      .drawLine()
-      .style('b') // Start bold
-      .text(
-        '    ' + // 4 spaces indentation
-        textStart(bill.tqty, COLUMN_WIDTHS.qty) +
-        '          ' + // 13 spaces (adjust as needed)
-        textStart(formatMoney(bill.tvalue), COLUMN_WIDTHS.value) +
-        textStart(formatMoney(bill.tdiscount), COLUMN_WIDTHS.disc) +
-        textStart(formatMoney(bill.subtotal), COLUMN_WIDTHS.tvalue)
-      )
-      .style('normal') // End bold
-      .drawLine();
-
-      printer
-      .text(
-        centerText('DISC/ROUND OFF(+/-)', 38) +
-        textStart(formatMoney(calculatedDiscount))
-      )
-      .feed(1);
-
-      printer
-      .style('b')
-      .align('ct') 
-      .size(1,1)
-      .text(" GRAND TOTAL:" + formatMoney(bill.grandTotal))
-      .style('NORMAL')
-      .size(0.5,0.5)
-      .feed(1)
-
-      printer
-      .drawLine()
-      .raw(Buffer.from([0x1D, 0x42, 1]))
-      .size(1,1)
-      .style('b')
-      .text(" YOUR SAVING:" + formatMoney(calculatedDiscount + bill.tdiscount ))
-      .raw(Buffer.from([0x1D, 0x42, 0]))
-      .size(0.5,0.5)
-      .style('NORMAL')
-      .drawLine();
-
-
-        if (upiPayment) {
-          const tn = encodeURIComponent(`Payment for Invoice ID ${bill.invoiceNumber}`);
-          const qrLink = `upi://pay?pa=${bill.upiId}&pn=${bill.accHolderName}&tn=${tn}&am=${upiPayment.amount}&cu=INR`;
-
-          printer
-            .align('ct')
-            .feed(1)
-            .text('Scan to pay via UPI')
-            .qrimage(qrLink, function () {
-              printer
-                .feed(1)
-                .align('ct')
-                .text('Thank you for shopping!')
-                .feed(1)
-                .text('Returns accepted within 7 days')
-                .text('with original receipt')
-                .feed(2)
-                .text('Customer care: +91 9945923901')
-                .feed(8)
-                .close();
-            });
-        } else {
-          // Closing message without QR
-          printer
-            .feed(1)
-            .align('ct')
-            .text('Thank you for shopping!')
-            .feed(1)
-            .text('Returns accepted within 7 days')
-            .text('with original receipt')
-            .feed(2)
-            .text('Customer care: 9876543210')
-            .feed(8)
-            .close();
-        }
-
-
-      // Common footer
-      
     
+      // Print header
+printer
+  .align('ct')
+  .style('b')
+  // Set double height and width (ESC ! 48)
+  .raw(Buffer.from([0x1B, 0x21, 0x30]))
+  .text(bill.companyName)
+  .style('normal')
+  // Reset to normal size (ESC ! 0)
+  .raw(Buffer.from([0x1B, 0x21, 0x00]))
+  .text(`${bill.companyAddress.name}, ${bill.companyAddress.street}`)
+  .text(`${bill.companyAddress.locality}, ${bill.companyAddress.city}`)
+  .text(`${bill.companyAddress.state}- ${bill.companyAddress.pincode}`)
+  .text(`GSTIN:${bill.gstin} `)
+  .feed(1)
+  .drawLine()
+  .align('lt')
+  .text(`Invoice: #${bill.invoiceNumber}`)
+  .raw(Buffer.from([0x1B, 0x4A, 10]))
+  .text(`Date  : ${moment(bill.date).format('DD-MM-YYYY hh:mm')}`)
+  .raw(Buffer.from([0x1B, 0x4A, 10]))
+  .text(`Payment Method: ${bill.paymentMethod}`)
+  .drawLine();
+
+if (bill.clientName) {
+  printer.text(`Customer Name: ${bill.clientName}`).raw(Buffer.from([0x1B, 0x4A, 10]));
+}
+if (bill.clientPhone) {
+  printer.text(`Customer Phone No: ${bill.clientPhone}`)
+    .raw(Buffer.from([0x1B, 0x4A, 10]))
+    .drawLine();
+}
+
+// Column headers (Row 1: SL, DESCRIPTION, TAX)
+printer
+  .text(
+    textStart("SL", COLUMN_WIDTHS.sl) +
+    textStart("DESCRIPTION", COLUMN_WIDTHS.description) +
+    textStart("HSN", COLUMN_WIDTHS.hsn) +
+    textStart("TAX", COLUMN_WIDTHS.tax)
+  )
+  .raw(Buffer.from([0x1B, 0x4A, 10]))
+
+// Column headers (Row 2: QTY, MRP, VALUE, DISC, T.VALUE)
+printer
+  .text(
+    '    '+
+    textStart("QTY", COLUMN_WIDTHS.qty) +
+    textStart("MRP", COLUMN_WIDTHS.mrp) +
+    textStart("VALUE", COLUMN_WIDTHS.value) +
+    textStart("DISC", COLUMN_WIDTHS.disc) +
+    textStart("T.VALUE", COLUMN_WIDTHS.tvalue)
+  )
+  .drawLine();
+
+// Print each item
+bill.entries.forEach((item,index) => {
+  // Line 1: SL, DESCRIPTION, HSN, TAX%
+  printer.text(
+    textStart(index+1, COLUMN_WIDTHS.sl) +
+    textStart(item.description, COLUMN_WIDTHS.description) +
+    textStart(item.hsn, COLUMN_WIDTHS.hsn) +
+    textStart(`${item.tax}%`, COLUMN_WIDTHS.tax)
+  )
+  .raw(Buffer.from([0x1B, 0x4A, 10]));
+
+  // Line 2: QTY, MRP, VALUE, DISC, T.VALUE
+  printer.text(
+    '    '+
+    textStart(item.qty, COLUMN_WIDTHS.qty) +
+    textStart(formatMoney(item.mrp), COLUMN_WIDTHS.mrp) +
+    textStart(formatMoney(item.value), COLUMN_WIDTHS.value) +
+    textStart(`${item.discount}%`, COLUMN_WIDTHS.disc) +
+    textStart(formatMoney(item.tvalue), COLUMN_WIDTHS.tvalue)
+  );
+});
+
+// Print summary
+printer
+  .drawLine()
+  .style('b') // Start bold
+  .text(
+    '    ' + // 4 spaces indentation
+    textStart(bill.tqty, COLUMN_WIDTHS.qty) +
+    '          ' + // 13 spaces (adjust as needed)
+    textStart(formatMoney(bill.tvalue), COLUMN_WIDTHS.value) +
+    textStart(formatMoney(bill.tdiscount), COLUMN_WIDTHS.disc) +
+    textStart(formatMoney(bill.subtotal), COLUMN_WIDTHS.tvalue)
+  )
+  .style('normal') // End bold
+  .drawLine();
+
+printer
+  .text(
+    centerText('DISC/ROUND OFF(+/-)', 38) +
+    textStart(formatMoney(calculatedDiscount))
+  )
+  .feed(1);
+
+printer
+  .style('b')
+  .align('ct')
+  // Set double height and width (ESC ! 48)
+  .raw(Buffer.from([0x1B, 0x21, 0x30]))
+  .text(" GRAND TOTAL:" + formatMoney(bill.grandTotal))
+  .style('NORMAL')
+  // Reset to normal size (ESC ! 0)
+  .raw(Buffer.from([0x1B, 0x21, 0x00]))
+  .feed(1)
+
+printer
+  .drawLine()
+  // Turn on white-on-black printing (GS B 1)
+  .raw(Buffer.from([0x1D, 0x42, 1]))
+  // Set double height and width (ESC ! 48)
+  .raw(Buffer.from([0x1B, 0x21, 0x30]))
+  .style('b')
+  .text(" YOUR SAVING:" + formatMoney(calculatedDiscount + bill.tdiscount ))
+  // Turn off white-on-black printing (GS B 0)
+  .raw(Buffer.from([0x1D, 0x42, 0]))
+  // Reset to normal size (ESC ! 0)
+  .raw(Buffer.from([0x1B, 0x21, 0x00]))
+  .style('NORMAL')
+  .drawLine();
+
+if (upiPayment) {
+  const tn = encodeURIComponent(`Payment for Invoice ID ${bill.invoiceNumber}`);
+  const qrLink = `upi://pay?pa=${bill.upiId}&pn=${bill.accHolderName}&tn=${tn}&am=${upiPayment.amount}&cu=INR`;
+
+  printer
+    .align('ct')
+    .feed(1)
+    .text('Scan to pay via UPI')
+    .qrimage(qrLink, function () {
+      printer
+        .feed(1)
+        .align('ct')
+        .text('Thank you for shopping!')
+        .feed(1)
+        .text('Returns accepted within 7 days')
+        .text('with original receipt')
+        .feed(2)
+        .text('Customer care: +91 9945923901')
+        .feed(8)
+        .cut()
+        .close();
+    });
+} else {
+  // Closing message without QR
+  printer
+    .feed(1)
+    .align('ct')
+    .text('Thank you for shopping!')
+    .feed(1)
+    .text('Returns accepted within 7 days')
+    .text('with original receipt')
+    .feed(2)
+    .text('Customer care: 9876543210')
+    .feed(8)
+    .cut()
+    .close();
+}
+
+
 
       res.status(200).json({ message: 'Receipt printed successfully' });
     } catch (err) {
@@ -283,11 +288,8 @@ app.post('/api/print-bill', async (req, res) => {
 });
 
 
-
 app.post('/api/print-report', async (req, res) => {
   const report = req.body;
-
-
 
   let device;
   try {
@@ -306,15 +308,16 @@ app.post('/api/print-report', async (req, res) => {
     }
 
     try {
-      
       // Print header
       printer
         .align('ct')
         .style('b')
-        .size(1, 1)
+        // Set double height and width (ESC ! 48)
+        .raw(Buffer.from([0x1B, 0x21, 0x30])) 
         .text(report.companyName)
         .style('normal') 
-        .size(0.5, 0.5)
+        // Reset to normal size (ESC ! 0)
+        .raw(Buffer.from([0x1B, 0x21, 0x00]))
         .feed(1)
         .drawLine()
 
@@ -351,17 +354,17 @@ app.post('/api/print-report', async (req, res) => {
         .raw(Buffer.from([0x1B, 0x4A, 40]))
         .style('normal');
 
-         printer
+      printer
         .text(
            textStart("DATE", COLUMN_WIDTHS.date) +
            textStart("CATEGORY", COLUMN_WIDTHS.category) +
            textStart("NOTE", COLUMN_WIDTHS.note) +
            textStart("AMOUNT", COLUMN_WIDTHS.amount)
         )
-         .drawLine()
+        .drawLine()
 
-        report.expenses.forEach((item,index) => {
-         printer
+      report.expenses.forEach((item,index) => {
+        printer
         .text(
            textStart(`${moment(item.createdAty).format('DD-MM')}`, COLUMN_WIDTHS.date) +
            textStart(item.expensecategory.name, COLUMN_WIDTHS.mrp) +
@@ -369,18 +372,12 @@ app.post('/api/print-report', async (req, res) => {
            textStart(item.totalAmount, COLUMN_WIDTHS.amount)
         )
       });
-          printer
-         .drawLine()
-        .feed(8)
-        .close();
-
-       
-         
-    
-
-      // Common footer
       
-    
+      printer
+        .drawLine()
+        .feed(8)
+        .cut()
+        .close();
 
       res.status(200).json({ message: 'Receipt printed successfully' });
     } catch (err) {
@@ -390,7 +387,6 @@ app.post('/api/print-report', async (req, res) => {
     }
   });
 });
-
 
 app.post('/api/print-label', async (req, res) => {
   const items = req.body;
